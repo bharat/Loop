@@ -18,6 +18,7 @@ struct NotificationManager {
         case pumpBatteryLow
         case pumpReservoirEmpty
         case pumpReservoirLow
+        case pumpSuspended
     }
 
     enum Action: String {
@@ -158,6 +159,27 @@ struct NotificationManager {
 
             UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: loopNotRunningIdentifiers)
         }
+    }
+
+    static func sendPumpSuspendedNotification() {
+        let notification = UNMutableNotificationContent()
+
+        notification.title = NSLocalizedString("Pump Suspended", comment: "The notification title for a suspended pump")
+        notification.body = NSLocalizedString("Unsuspend the pump immediately", comment: "The notification alert describing a suspended pump")
+        notification.sound = UNNotificationSound.default()
+        notification.categoryIdentifier = Category.pumpSuspended.rawValue
+
+        let request = UNNotificationRequest(
+            identifier: Category.pumpSuspended.rawValue,
+            content: notification,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request)
+    }
+
+    static func clearPumpSuspendedNotification() {
+        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Category.pumpSuspended.rawValue])
     }
 
     static func sendPumpBatteryLowNotification() {

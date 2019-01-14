@@ -9,7 +9,7 @@
 import HealthKit
 import LoopKit
 import LoopKitUI
-
+import MinimedKit
 
 final class DeviceDataManager {
 
@@ -47,6 +47,8 @@ final class DeviceDataManager {
         lockedLastError.value = (date: Date(), error: error)
     }
     private let lockedLastError: Locked<(date: Date, error: Error)?> = Locked(nil)
+
+    private var suspendedSince: Date?
 
     // MARK: - CGM
 
@@ -207,6 +209,12 @@ extension DeviceDataManager: PumpManagerDelegate {
                 // TODO: Isolate to queue?
                 self.cgmManager(manager, didUpdateWith: result)
             }
+        }
+
+        if suspendedSince != nil {
+            NotificationManager.sendPumpSuspendedNotification()
+        } else {
+            NotificationManager.clearPumpSuspendedNotification()
         }
     }
 
