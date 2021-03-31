@@ -17,9 +17,12 @@ extension UserDefaults {
         case basalRateSchedule = "com.loudnate.Naterade.BasalRateSchedule"
         case carbRatioSchedule = "com.loudnate.Naterade.CarbRatioSchedule"
         case insulinModelSettings = "com.loopkit.Loop.insulinModelSettings"
+        case rapidActingInsulinModelSetting = "com.loopkit.Loop.rapidActingInsulinModelSetting"
         case loopSettings = "com.loopkit.Loop.loopSettings"
         case insulinSensitivitySchedule = "com.loudnate.Naterade.InsulinSensitivitySchedule"
-        case overrideHistory = "com.tidepool.loopkit.overrideHistory"
+        case overrideHistory = "com.loopkit.overrideHistory"
+        case lastBedtimeQuery = "com.loopkit.Loop.lastBedtimeQuery"
+        case bedtime = "com.loopkit.Loop.bedtime"
     }
 
     public static let appGroup = UserDefaults(suiteName: Bundle.main.appGroupSuiteName)
@@ -67,6 +70,21 @@ extension UserDefaults {
         }
         set {
             set(newValue?.rawValue, forKey: Key.insulinModelSettings.rawValue)
+        }
+    }
+    
+    public var rapidActingInsulinModelSetting: InsulinModelSettings {
+        get {
+            if let rawValue = dictionary(forKey: Key.rapidActingInsulinModelSetting.rawValue) {
+                if let setting = InsulinModelSettings(rawValue: rawValue) {
+                    return setting
+                }
+               
+            }
+            return InsulinModelSettings(model: ExponentialInsulinModelPreset.rapidActingAdult)!
+        }
+        set {
+            set(newValue.rawValue, forKey: Key.rapidActingInsulinModelSetting.rawValue)
         }
     }
 
@@ -149,6 +167,24 @@ extension UserDefaults {
         }
         set {
             set(newValue?.rawValue, forKey: Key.overrideHistory.rawValue)
+        }
+    }
+    
+    public var lastBedtimeQuery: Date? {
+        get {
+            return object(forKey: Key.lastBedtimeQuery.rawValue) as? Date
+        }
+        set {
+            set(newValue, forKey: Key.lastBedtimeQuery.rawValue)
+        }
+    }
+    
+    public var bedtime: Date? {
+        get {
+            return object(forKey: Key.bedtime.rawValue) as? Date
+        }
+        set {
+            set(newValue, forKey: Key.bedtime.rawValue)
         }
     }
 }

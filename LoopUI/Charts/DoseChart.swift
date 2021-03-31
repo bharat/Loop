@@ -7,21 +7,33 @@
 
 import Foundation
 import LoopKit
+import LoopKitUI
 import SwiftCharts
 
+fileprivate struct DosePointsCache {
+    let basal: [ChartPoint]
+    let basalFill: [ChartPoint]
+    let bolus: [ChartPoint]
+    let highlight: [ChartPoint]
+}
 
 public class DoseChart: ChartProviding {
     public init() {
+        doseEntries = []
+    }
+    
+    public var doseEntries: [DoseEntry] {
+        didSet {
+            pointsCache = nil
+        }
     }
 
-    public private(set) var basalDosePoints: [ChartPoint] = []
-    public private(set) var bolusDosePoints: [ChartPoint] = []
-
-    /// Dose points selectable when highlighting
-    public private(set) var allDosePoints: [ChartPoint] = [] {
+    private var pointsCache: DosePointsCache? {
         didSet {
-            if let lastDate = allDosePoints.last?.x as? ChartAxisValueDate {
-                endDate = lastDate.date
+            if let pointsCache = pointsCache {
+                if let lastDate = pointsCache.highlight.last?.x as? ChartAxisValueDate {
+                    endDate = lastDate.date
+                }
             }
         }
     }
@@ -41,18 +53,26 @@ public class DoseChart: ChartProviding {
 
 public extension DoseChart {
     func didReceiveMemoryWarning() {
-        basalDosePoints = []
-        bolusDosePoints = []
-        allDosePoints = []
+        pointsCache = nil
         doseChartCache = nil
     }
 
     func generate(withFrame frame: CGRect, xAxisModel: ChartAxisModel, xAxisValues: [ChartAxisValue], axisLabelSettings: ChartLabelSettings, guideLinesLayerSettings: ChartGuideLinesLayerSettings, colors: ChartColorPalette, chartSettings: ChartSettings, labelsWidthY: CGFloat, gestureRecognizer: UIGestureRecognizer?, traitCollection: UITraitCollection) -> Chart
     {
         let integerFormatter = NumberFormatter.integer
+        
+        let startDate = ChartAxisValueDate.dateFromScalar(xAxisValues.first!.scalar)
+        
+        let points = generateDosePoints(startDate: startDate)
 
-        let yAxisValues = ChartAxisValuesStaticGenerator.generateYAxisValuesWithChartPoints(basalDosePoints + bolusDosePoints + doseDisplayRangePoints, minSegmentCount: 2, maxSegmentCount: 3, multiple: log10(2) / 2, axisValueGenerator: { ChartAxisValueDoubleLog(screenLocDouble: $0, formatter: integerFormatter, labelSettings: axisLabelSettings) }, addPaddingSegmentIfEdge: true)
-
+        let yAxisValues = ChartAxisValuesStaticGenerator.generateYAxisValuesUsingLinearSegmentStep(
+            chartPoints: points.basal + points.bolus + doseDisplayRangePoints,
+            minSegmentCount: 2,
+            maxSegmentCount: 3,
+            multiple: log(2) / 2,
+            axisValueGenerator: { ChartAxisValueDoubleLog(screenLocDouble: $0, formatter: integerFormatter, labelSettings: axisLabelSettings) },
+            addPaddingSegmentIfEdge: true)
+        
         let yAxisModel = ChartAxisModel(axisValues: yAxisValues, lineColor: colors.axisLine, labelSpaceReservationMode: .fixed(labelsWidthY))
 
         let coordsSpace = ChartCoordsSpaceLeftBottomSingleAxis(chartSettings: chartSettings, chartFrame: frame, xModel: xAxisModel, yModel: yAxisModel)
@@ -60,23 +80,23 @@ public extension DoseChart {
         let (xAxisLayer, yAxisLayer, innerFrame) = (coordsSpace.xAxisLayer, coordsSpace.yAxisLayer, coordsSpace.chartInnerFrame)
 
         // The dose area
-        let lineModel = ChartLineModel(chartPoints: basalDosePoints, lineColor: colors.doseTint, lineWidth: 2, animDuration: 0, animDelay: 0)
+        let lineModel = ChartLineModel(chartPoints: points.basal, lineColor: colors.insulinTint, lineWidth: 2, animDuration: 0, animDelay: 0)
         let doseLine = ChartPointsLineLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, lineModels: [lineModel])
 
         let doseArea = ChartPointsFillsLayer(
             xAxis: xAxisLayer.axis,
             yAxis: yAxisLayer.axis,
             fills: [ChartPointsFill(
-                chartPoints: basalDosePoints,
-                fillColor: colors.doseTint.withAlphaComponent(0.5),
+                chartPoints: points.basalFill,
+                fillColor: colors.insulinTint.withAlphaComponent(0.5),
                 createContainerPoints: false
             )]
         )
 
         let bolusLayer: ChartPointsScatterDownTrianglesLayer<ChartPoint>?
 
-        if bolusDosePoints.count > 0 {
-            bolusLayer = ChartPointsScatterDownTrianglesLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, chartPoints: bolusDosePoints, displayDelay: 0, itemSize: CGSize(width: 12, height: 12), itemFillColor: colors.doseTint)
+        if points.bolus.count > 0 {
+            bolusLayer = ChartPointsScatterDownTrianglesLayer(xAxis: xAxisLayer.axis, yAxis: yAxisLayer.axis, chartPoints: points.bolus, displayDelay: 0, itemSize: CGSize(width: 12, height: 12), itemFillColor: colors.insulinTint)
         } else {
             bolusLayer = nil
         }
@@ -91,7 +111,7 @@ public extension DoseChart {
             let viewFrame = CGRect(x: chart.contentView.bounds.minX, y: chartPointModel.screenLoc.y - width / 2, width: chart.contentView.bounds.size.width, height: width)
 
             let v = UIView(frame: viewFrame)
-            v.layer.backgroundColor = colors.doseTint.cgColor
+            v.layer.backgroundColor = colors.insulinTint.cgColor
             return v
         })
 
@@ -100,8 +120,8 @@ public extension DoseChart {
                 xAxisLayer: xAxisLayer,
                 yAxisLayer: yAxisLayer,
                 axisLabelSettings: axisLabelSettings,
-                chartPoints: allDosePoints,
-                tintColor: colors.doseTint,
+                chartPoints: points.highlight,
+                tintColor: colors.insulinTint,
                 gestureRecognizer: gestureRecognizer
             )
         }
@@ -119,17 +139,21 @@ public extension DoseChart {
 
         return Chart(frame: frame, innerFrame: innerFrame, settings: chartSettings, layers: layers.compactMap { $0 })
     }
-}
-
-public extension DoseChart {
-    func setDoseEntries(_ doseEntries: [DoseEntry]) {
+    
+    private func generateDosePoints(startDate: Date) -> DosePointsCache {
+        
+        guard pointsCache == nil else {
+            return pointsCache!
+        }
+        
         let dateFormatter = DateFormatter(timeStyle: .short)
         let doseFormatter = NumberFormatter.dose
 
-        var basalDosePoints = [ChartPoint]()
-        var bolusDosePoints = [ChartPoint]()
-        var allDosePoints = [ChartPoint]()
-
+        var basalPoints = [ChartPoint]()
+        var basalFillPoints = [ChartPoint]()
+        var bolusPoints = [ChartPoint]()
+        var highlightPoints = [ChartPoint]()
+        
         for entry in doseEntries {
             let time = entry.endDate.timeIntervalSince(entry.startDate)
 
@@ -138,11 +162,11 @@ public extension DoseChart {
                 let y = ChartAxisValueDoubleLog(actualDouble: entry.unitsInDeliverableIncrements, unitString: "U", formatter: doseFormatter)
 
                 let point = ChartPoint(x: x, y: y)
-                bolusDosePoints.append(point)
-                allDosePoints.append(point)
+                bolusPoints.append(point)
+                highlightPoints.append(point)
             } else if time > 0 {
                 // TODO: Display the DateInterval
-                let startX = ChartAxisValueDate(date: entry.startDate, formatter: dateFormatter)
+                let startX = ChartAxisValueDate(date: max(startDate, entry.startDate), formatter: dateFormatter)
                 let endX = ChartAxisValueDate(date: entry.endDate, formatter: dateFormatter)
                 let zero = ChartAxisValueInt(0)
                 let rate = entry.netBasalUnitsPerHour
@@ -158,19 +182,20 @@ public extension DoseChart {
                 } else {
                     valuePoints = []
                 }
+                
+                basalFillPoints += [ChartPoint(x: startX, y: zero)] + valuePoints + [ChartPoint(x: endX, y: zero)]
+                
+                if entry.startDate > startDate {
+                    basalPoints += [ChartPoint(x: startX, y: zero)]
+                }
+                basalPoints += valuePoints + [ChartPoint(x: endX, y: zero)]
 
-                basalDosePoints += [
-                    ChartPoint(x: startX, y: zero)
-                ] + valuePoints + [
-                    ChartPoint(x: endX, y: zero)
-                ]
-
-                allDosePoints += valuePoints
+                highlightPoints += valuePoints
             }
         }
-
-        self.basalDosePoints = basalDosePoints
-        self.bolusDosePoints = bolusDosePoints
-        self.allDosePoints = allDosePoints
+        
+        let pointsCache = DosePointsCache(basal: basalPoints, basalFill: basalFillPoints, bolus: bolusPoints, highlight: highlightPoints)
+        self.pointsCache = pointsCache
+        return pointsCache
     }
 }

@@ -14,13 +14,18 @@ import LoopKit
 final class WatchContext: RawRepresentable {
     typealias RawValue = [String: Any]
 
-    private let version = 4
+    private let version = 5
+
+    var creationDate = Date()
 
     var preferredGlucoseUnit: HKUnit?
 
     var glucose: HKQuantity?
     var glucoseTrendRawValue: Int?
     var glucoseDate: Date?
+    var glucoseIsDisplayOnly: Bool?
+    var glucoseWasUserEntered: Bool?
+    var glucoseSyncIdentifier: String?
 
     var predictedGlucose: WatchPredictedGlucose?
     var eventualGlucose: HKQuantity? {
@@ -32,6 +37,9 @@ final class WatchContext: RawRepresentable {
     var lastNetTempBasalDate: Date?
     var recommendedBolusDose: Double?
 
+    var potentialCarbEntry: NewCarbEntry?
+    var recommendedBolusDoseConsideringPotentialCarbEntry: Double?
+
     var cob: Double?
     var iob: Double?
     var reservoir: Double?
@@ -40,13 +48,17 @@ final class WatchContext: RawRepresentable {
 
     var cgmManagerState: CGMManager.RawStateValue?
 
-    init() {
-    }
+    var isClosedLoop: Bool?
+    
+    init() {}
 
     required init?(rawValue: RawValue) {
-        guard rawValue["v"] as? Int == version else {
+        guard rawValue["v"] as? Int == version, let creationDate = rawValue["cd"] as? Date else {
             return nil
         }
+
+        self.creationDate = creationDate
+        isClosedLoop = rawValue["cl"] as? Bool
 
         if let unitString = rawValue["gu"] as? String {
             preferredGlucoseUnit = HKUnit(from: unitString)
@@ -58,6 +70,9 @@ final class WatchContext: RawRepresentable {
 
         glucoseTrendRawValue = rawValue["gt"] as? Int
         glucoseDate = rawValue["gd"] as? Date
+        glucoseIsDisplayOnly = rawValue["gdo"] as? Bool
+        glucoseWasUserEntered = rawValue["gue"] as? Bool
+        glucoseSyncIdentifier = rawValue["gs"] as? String
         iob = rawValue["iob"] as? Double
         reservoir = rawValue["r"] as? Double
         reservoirPercentage = rawValue["rp"] as? Double
@@ -67,6 +82,10 @@ final class WatchContext: RawRepresentable {
         lastNetTempBasalDose = rawValue["ba"] as? Double
         lastNetTempBasalDate = rawValue["bad"] as? Date
         recommendedBolusDose = rawValue["rbo"] as? Double
+        if let rawPotentialCarbEntry = rawValue["pce"] as? NewCarbEntry.RawValue {
+            potentialCarbEntry = NewCarbEntry(rawValue: rawPotentialCarbEntry)
+        }
+        recommendedBolusDoseConsideringPotentialCarbEntry = rawValue["rbce"] as? Double
         cob = rawValue["cob"] as? Double
 
         cgmManagerState = rawValue["cgmManagerState"] as? CGMManager.RawStateValue
@@ -78,12 +97,14 @@ final class WatchContext: RawRepresentable {
 
     var rawValue: RawValue {
         var raw: [String: Any] = [
-            "v": version
+            "v": version,
+            "cd": creationDate
         ]
 
         raw["ba"] = lastNetTempBasalDose
         raw["bad"] = lastNetTempBasalDate
         raw["bp"] = batteryPercentage
+        raw["cl"] = isClosedLoop
 
         raw["cgmManagerState"] = cgmManagerState
 
@@ -95,10 +116,15 @@ final class WatchContext: RawRepresentable {
 
         raw["gt"] = glucoseTrendRawValue
         raw["gd"] = glucoseDate
+        raw["gdo"] = glucoseIsDisplayOnly
+        raw["gue"] = glucoseWasUserEntered
+        raw["gs"] = glucoseSyncIdentifier
         raw["iob"] = iob
         raw["ld"] = loopLastRunDate
         raw["r"] = reservoir
         raw["rbo"] = recommendedBolusDose
+        raw["pce"] = potentialCarbEntry?.rawValue
+        raw["rbce"] = recommendedBolusDoseConsideringPotentialCarbEntry
         raw["rp"] = reservoirPercentage
 
         raw["pg"] = predictedGlucose?.rawValue
@@ -115,5 +141,14 @@ extension WatchContext {
         } else {
             return true
         }
+    }
+}
+
+extension WatchContext {
+    var newGlucoseSample: NewGlucoseSample? {
+        if let quantity = glucose, let date = glucoseDate, let syncIdentifier = glucoseSyncIdentifier {
+            return NewGlucoseSample(date: date, quantity: quantity, isDisplayOnly: glucoseIsDisplayOnly ?? false, wasUserEntered: glucoseWasUserEntered ?? false, syncIdentifier: syncIdentifier, syncVersion: 0)
+        }
+        return nil
     }
 }

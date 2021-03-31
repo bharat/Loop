@@ -13,7 +13,7 @@ import LoopKitUI
 class RootNavigationController: UINavigationController {
 
     /// Its root view controller is always StatusTableViewController after loading
-    var rootViewController: StatusTableViewController! {
+    var statusTableViewController: StatusTableViewController! {
         return viewControllers.first as? StatusTableViewController
     }
 
@@ -29,7 +29,7 @@ class RootNavigationController: UINavigationController {
             }
         case NSUserActivity.newCarbEntryActivityType:
             if let navVC = presentedViewController as? UINavigationController {
-                if let carbVC = navVC.topViewController as? CarbEntryEditViewController {
+                if let carbVC = navVC.topViewController as? CarbEntryViewController {
                     carbVC.restoreUserActivityState(activity)
                     return
                 } else {
@@ -46,7 +46,7 @@ class RootNavigationController: UINavigationController {
 
             fallthrough
         default:
-            rootViewController.restoreUserActivityState(activity)
+            statusTableViewController.restoreUserActivityState(activity)
         }
     }
 
